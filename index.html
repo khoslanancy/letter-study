@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Letter Counting Study</title>
+<style>
+  :root{--ink:#1d2330;--muted:#5d6678;--line:#d9dee7;--accent:#2f5bd3;--bg:#ffffff}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--ink);background:var(--bg)}
+  button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:10px 22px;background:var(--accent);color:#fff}
+  button:disabled{background:#aab4c8;cursor:not-allowed}
+  input.ans{font:inherit;font-size:18px;width:90px;padding:8px 10px;border:1px solid #9aa4b6;border-radius:6px;text-align:center}
+  input.ans.missing{border-color:#d33;box-shadow:0 0 0 2px #f6c9c9}
+  .page{max-width:680px;margin:48px auto;padding:0 16px;line-height:1.55}
+  .page h1{font-size:24px}
+  .muted{color:var(--muted)}
+  /* letter grid: letters drawn via CSS so browser find (Ctrl+F) cannot count them */
+  .grid{display:grid;grid-template-columns:repeat(10,1.6em);gap:4px 2px;font-family:ui-monospace,Consolas,Menlo,monospace;font-size:20px;
+        user-select:none;-webkit-user-select:none;margin:14px 0}
+  .L{text-align:center}
+  .L::before{content:attr(data-l)}
+  .target{display:inline-block;font-family:ui-monospace,Consolas,monospace;font-weight:700;border:2px solid var(--ink);border-radius:4px;padding:0 8px}
+
+  /* ---------- CLEAN ---------- */
+  .clean{max-width:560px;margin:40px auto;padding:0 16px}
+  .progress{height:6px;background:#e8ebf1;border-radius:3px;overflow:hidden}
+  .progress>div{height:100%;background:var(--accent)}
+  .ptext{font-size:13px;color:var(--muted);margin:6px 0 24px}
+  .clean h2{font-size:19px;font-weight:600}
+  .row{display:flex;gap:12px;align-items:center;margin-top:16px}
+
+  /* ---------- CLUTTERED ---------- */
+  .cl{background:#eef1f7;min-height:100vh}
+  .cl-top{background:#1f2a44;color:#fff;display:flex;align-items:center;gap:22px;padding:10px 18px;font-size:14px}
+  .cl-top .logo{font-weight:800;font-size:17px;color:#ffd54a}
+  .cl-top nav span{margin-right:16px;opacity:.85}
+  .cl-top .sp{flex:1}
+  .badge{background:#e53935;border-radius:9px;padding:0 6px;font-size:11px;margin-left:3px}
+  .ticker{background:#ffd54a;color:#3a2f00;font-size:13px;white-space:nowrap;overflow:hidden;padding:5px 0}
+  .ticker div{display:inline-block;padding-left:100%;animation:tick 45s linear infinite}
+  @keyframes tick{to{transform:translateX(-100%)}}
+  .cl-body{display:grid;grid-template-columns:200px 1fr 240px;gap:16px;padding:16px}
+  .side{display:flex;flex-direction:column;gap:12px;font-size:13px}
+  .panel{background:#fff;border-radius:10px;padding:12px;border:1px solid #dfe3ec}
+  .panel h4{margin:0 0 8px;font-size:13px;color:#33405e}
+  .panel p{margin:4px 0;color:#4c5670}
+  .menu div{padding:5px 0;color:#33405e}
+  .bars{display:flex;align-items:flex-end;gap:5px;height:60px}
+  .bars i{display:block;width:14px;background:linear-gradient(#7aa2ff,#2f5bd3);border-radius:3px 3px 0 0}
+  .banner{background:#fff3cd;border:1px solid #f0d57c;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+  .card{background:#fff;border-radius:10px;padding:12px 14px;border:1px solid #dfe3ec;border-top:4px solid var(--c)}
+  .card h3{margin:0;font-size:15px}
+  .card .grid{font-size:18px}
+  .tag{font-size:11px;background:#eef1f7;border-radius:10px;padding:2px 8px;margin-left:6px;color:#5d6678}
+  .submitbar{margin:18px 0 40px;display:flex;gap:14px;align-items:center}
+  @media (max-width:1000px){.cl-body{grid-template-columns:1fr}.side{display:none}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* =================== CONFIG — edit these =================== */
+const CONFIG = {
+  ENDPOINT: "https://script.google.com/macros/s/AKfycbzuLMcuI2r8Rp8SlLaThsOfBDqjWual3OwnK0MWKqfKizsHzzQORFLAkx8tCrQgYDkkPQ/exec",              // Google Apps Script web-app URL (see README). Empty = test mode, data shown on screen.
+  COMPLETION_CODE: "C9AS3TGJ", // Prolific completion code
+  SEED: 5306,                // fixed seed -> every participant sees identical letter grids
+  STUDY_MINUTES: 8
+};
+/* ============================================================ */
+
+// ---- task generation (deterministic) ----
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+// [target letter, number of targets, visually similar distractors]
+const SPEC=[['E',7,'FBLH'],['K',9,'XRHY'],['O',6,'QCDG'],['R',11,'PBK'],['M',8,'NWH'],
+            ['P',10,'RBF'],['W',5,'VMN'],['C',12,'GOQ'],['B',9,'ERPD'],['N',7,'MHZ']];
+const LEN=80, SIMILAR_P=0.4, ALPHA='ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+function makeTasks(seed){
+  const r=mulberry32(seed);
+  return SPEC.map(([tg,n,sim],i)=>{
+    const others=ALPHA.replace(tg,'');
+    const arr=[];
+    for(let k=0;k<LEN;k++) arr.push(r()<SIMILAR_P ? sim[Math.floor(r()*sim.length)] : others[Math.floor(r()*others.length)]);
+    const pos=[...Array(LEN).keys()];
+    for(let k=LEN-1;k>0;k--){const j=Math.floor(r()*(k+1));[pos[k],pos[j]]=[pos[j],pos[k]];}
+    pos.slice(0,n).forEach(p=>arr[p]=tg);
+    return {id:i+1,target:tg,seq:arr.join(''),correct:n};
+  });
+}
+
+// ---- participant + condition ----
+const Q=new URLSearchParams(location.search);
+const forced=Q.get('cond');
+const S={
+  pid:Q.get('PROLIFIC_PID')||'', study_id:Q.get('STUDY_ID')||'', session_id:Q.get('SESSION_ID')||'',
+  condition:(forced==='clean'||forced==='cluttered')?forced:(Math.random()<0.5?'clean':'cluttered'),
+  assigned_by:(forced==='clean'||forced==='cluttered')?'url':'random',
+  tasks:makeTasks(CONFIG.SEED), phase:'consent', t0:null, t_end:null, started_at:null,
+  hidden_count:0, hidden_ms:0, hidden_since:null, log:[]
+};
+S.resp=S.tasks.map(t=>({id:t.id,answer:null,shown_ms:null,submitted_ms:null,first_focus_ms:null,last_edit_ms:null,edits:0}));
+const now=()=>Math.round(performance.now()-S.t0);
+const app=document.getElementById('app');
+const grid=t=>`<div class="grid">${t.seq.split('').map(c=>`<span class="L" data-l="${c}"></span>`).join('')}</div>`;
+const valid=v=>/^\d{1,3}$/.test(v.trim());
+
+// tab-switch tracking during tasks
+document.addEventListener('visibilitychange',()=>{
+  if(S.phase!=='tasks')return;
+  if(document.hidden){S.hidden_count++;S.hidden_since=performance.now();}
+  else if(S.hidden_since!=null){S.hidden_ms+=Math.round(performance.now()-S.hidden_since);S.hidden_since=null;}
+});
+window.addEventListener('beforeunload',e=>{if(S.phase==='tasks'){e.preventDefault();e.returnValue='';}});
+
+function attachLogging(input,i){
+  input.addEventListener('focus',()=>{if(S.resp[i].first_focus_ms==null)S.resp[i].first_focus_ms=now();S.log.push({task:i+1,ev:'focus',t:now()});});
+  input.addEventListener('input',()=>{
+    input.value=input.value.replace(/\D/g,'').slice(0,3);
+    S.resp[i].edits++;S.resp[i].last_edit_ms=now();
+    S.log.push({task:i+1,ev:'edit',v:input.value,t:now()});
+  });
+}
+
+// ---------- screens ----------
+function consent(){
+  app.innerHTML=`<div class="page">
+    <h1>Letter Counting Study</h1>
+    <p>This study is part of a Cornell University course project on crowd work. You will count letters in 10 short grids. It takes about ${CONFIG.STUDY_MINUTES} minutes.</p>
+    <p>We record your answers, how long you take, and your Prolific ID. No other personal information is collected. Participation is voluntary, and you can stop at any time by closing this page.</p>
+    <p>Please use a laptop or desktop computer and keep this tab open until you finish.</p>
+    <button id="go">I agree, continue</button></div>`;
+  document.getElementById('go').onclick=instructions;
+}
+function instructions(){
+  app.innerHTML=`<div class="page">
+    <h1>Instructions</h1>
+    <p>You will see <b>10 grids of letters</b>. For each grid, count how many times the <b>target letter</b> appears and type the number.</p>
+    <p>Please complete the tasks <b>in order, from Task 1 to Task 10</b>. Work as <b>accurately and as quickly</b> as you can.</p>
+    <p class="muted">Please count by eye only; don't use any tools. You will not see whether your answers are correct.</p>
+    <p>Timing starts when you click Start.</p>
+    <button id="go">Start</button></div>`;
+  document.getElementById('go').onclick=()=>{S.phase='tasks';S.t0=performance.now();S.started_at=new Date().toISOString();
+    S.condition==='clean'?clean(0):cluttered();window.scrollTo(0,0);};
+}
+
+// ---------- CLEAN: one task at a time ----------
+function clean(i){
+  const t=S.tasks[i];
+  app.innerHTML=`<div class="clean">
+    <div class="progress"><div style="width:${i/S.tasks.length*100}%"></div></div>
+    <div class="ptext">Task ${i+1} of ${S.tasks.length}</div>
+    <h2>How many times does the letter <span class="target">${t.target}</span> appear?</h2>
+    ${grid(t)}
+    <div class="row"><input class="ans" id="ans" inputmode="numeric" autocomplete="off" placeholder="#">
+    <button id="next" disabled>${i===S.tasks.length-1?'Finish':'Next'}</button></div></div>`;
+  S.resp[i].shown_ms=now();
+  const inp=document.getElementById('ans'), btn=document.getElementById('next');
+  attachLogging(inp,i);
+  inp.addEventListener('input',()=>btn.disabled=!valid(inp.value));
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter'&&!btn.disabled)btn.click();});
+  btn.onclick=()=>{
+    S.resp[i].answer=parseInt(inp.value,10);S.resp[i].submitted_ms=now();
+    if(i+1<S.tasks.length){clean(i+1);window.scrollTo(0,0);}else endTasks();
+  };
+  inp.focus();
+}
+
+// ---------- CLUTTERED: all tasks at once + distractors ----------
+const COLORS=['#e57373','#64b5f6','#81c784','#ffb74d','#ba68c8','#4db6ac','#f06292','#9575cd','#aed581','#ffd54f'];
+const ICONS=['📊','🧩','🚀','📌','🔔','⭐','🗂️','💡','🎯','🧭'];
+function cluttered(){
+  const headlines=['Server maintenance scheduled for Saturday 02:00 UTC','New badge unlocked: Weekly Streak','Tip: stretch every 30 minutes',
+    'Community poll: favorite snack while working?','Platform update 4.2 now live','Reminder: profile survey closes Friday',
+    'Top contributors this week announced','Weather: light rain expected this afternoon'];
+  app.innerHTML=`<div class="cl">
+   <div class="cl-top"><span class="logo">⚡ TaskHub Pro</span>
+     <nav><span>Dashboard</span><span>Projects</span><span>Earnings</span><span>Messages<span class="badge">3</span></span><span>Help</span></nav>
+     <span class="sp"></span><span>🔔<span class="badge">5</span></span><span id="clock"></span><span>👤 Worker</span></div>
+   <div class="ticker"><div>${headlines.join('  •  ')}</div></div>
+   <div class="cl-body">
+    <div class="side">
+      <div class="panel menu"><h4>Workspace</h4><div>🏠 Home</div><div>📁 My batches</div><div>📈 Statistics</div><div>🏆 Leaderboard</div><div>⚙️ Settings</div><div>💬 Forum</div></div>
+      <div class="panel"><h4>Weekly activity</h4><div class="bars">${[30,48,22,55,40,60,35].map(h=>`<i style="height:${h}px"></i>`).join('')}</div></div>
+      <div class="panel"><h4>Did you know?</h4><p>Honeybees can recognize human faces and communicate distances through a "waggle dance."</p></div>
+    </div>
+    <div>
+      <div class="banner">📋 <b>Batch #A-2291:</b> Complete Tasks 1–10 <b>in order</b>. For each, count how many times the target letter appears.</div>
+      <div class="cards">${S.tasks.map((t,i)=>`
+        <div class="card" style="--c:${COLORS[i]}">
+          <h3>${ICONS[i]} Task ${t.id} <span class="tag">Count the letter</span> <span class="target">${t.target}</span></h3>
+          ${grid(t)}
+          <input class="ans" data-i="${i}" inputmode="numeric" autocomplete="off" placeholder="#">
+        </div>`).join('')}</div>
+      <div class="submitbar"><button id="sub">Submit all</button><span id="msg" class="muted"></span></div>
+    </div>
+    <div class="side">
+      <div class="panel"><h4>📣 Announcements</h4><p>Bonus round opens next week for Level 3+ workers.</p><p>Remember to update your payout settings.</p></div>
+      <div class="panel"><h4>💬 Recent messages</h4><p><b>Alex:</b> anyone else's batch loading slow?</p><p><b>Sam:</b> new tasks look easier today</p><p><b>Jordan:</b> 👍</p></div>
+      <div class="panel"><h4>⭐ Your level</h4><p>Level 2 — 340 / 500 XP</p><div class="progress"><div style="width:68%;background:#ffb74d"></div></div></div>
+      <div class="panel"><h4>🌤️ Today</h4><p>Partly cloudy, 54°F</p><p>Quote: "Small steps every day."</p></div>
+    </div>
+   </div></div>`;
+  const tickClock=()=>{const c=document.getElementById('clock');if(c)c.textContent=new Date().toLocaleTimeString();};
+  tickClock();S.clockTimer=setInterval(tickClock,1000);
+  const shown=now();
+  S.resp.forEach(r=>r.shown_ms=shown);
+  const inputs=[...document.querySelectorAll('input.ans')];
+  inputs.forEach(inp=>attachLogging(inp,+inp.dataset.i));
+  document.getElementById('sub').onclick=()=>{
+    const missing=inputs.filter(x=>!valid(x.value));
+    inputs.forEach(x=>x.classList.toggle('missing',!valid(x.value)));
+    if(missing.length){document.getElementById('msg').textContent=`Please answer all tasks (${missing.length} missing).`;missing[0].scrollIntoView({block:'center'});return;}
+    const t=now();
+    inputs.forEach(x=>{const i=+x.dataset.i;S.resp[i].answer=parseInt(x.value,10);S.resp[i].submitted_ms=t;});
+    clearInterval(S.clockTimer);endTasks();
+  };
+}
+
+// ---------- post-task survey ----------
+function endTasks(){
+  S.t_end=now();S.phase='survey';window.scrollTo(0,0);
+  app.innerHTML=`<div class="page">
+    <h1>Almost done</h1>
+    <p><b>1.</b> To show you are reading carefully, please select <i>"Somewhat disagree"</i> below.</p>
+    ${['Strongly agree','Somewhat agree','Somewhat disagree','Strongly disagree'].map(o=>`<label><input type="radio" name="attn" value="${o}"> ${o}</label><br>`).join('')}
+    <p><b>2.</b> Did you use any tools or aids (e.g., zooming, copying text, another app) to count the letters? Your answer does not affect your payment.</p>
+    <label><input type="radio" name="tools" value="no"> No</label><br><label><input type="radio" name="tools" value="yes"> Yes</label><br>
+    <p><b>3.</b> How mentally demanding was the task? (1 = very low, 7 = very high)</p>
+    <div>${[1,2,3,4,5,6,7].map(n=>`<label style="margin-right:10px"><input type="radio" name="load" value="${n}"> ${n}</label>`).join('')}</div>
+    <p><b>4.</b> Any comments? (optional)</p>
+    <textarea id="cm" rows="3" style="width:100%;font:inherit"></textarea>
+    <p><button id="go" disabled>Submit</button></p></div>`;
+  const val=n=>(document.querySelector(`input[name=${n}]:checked`)||{}).value;
+  app.addEventListener('change',()=>{const g=document.getElementById('go');if(g)g.disabled=!(val('attn')&&val('tools')&&val('load'));});
+  document.getElementById('go').onclick=()=>finish({attention:val('attn'),attention_pass:val('attn')==='Somewhat disagree',used_tools:val('tools'),
+    mental_demand:+val('load'),comments:document.getElementById('cm').value});
+}
+
+function payload(survey){
+  const tasks=S.tasks.map((t,i)=>{const r=S.resp[i];return {
+    task:t.id,target:t.target,correct_count:t.correct,answer:r.answer,is_correct:r.answer===t.correct,abs_error:Math.abs(r.answer-t.correct),
+    time_on_task_ms:S.condition==='clean'?r.submitted_ms-r.shown_ms:null,first_focus_ms:r.first_focus_ms,last_edit_ms:r.last_edit_ms,edits:r.edits,sequence:t.seq};});
+  const n=tasks.filter(t=>t.is_correct).length;
+  // order in which tasks were first touched (cluttered: checks if they followed 1..10)
+  const order=[...S.resp].filter(r=>r.first_focus_ms!=null).sort((a,b)=>a.first_focus_ms-b.first_focus_ms).map(r=>r.id);
+  return {version:'1.0',seed:CONFIG.SEED,prolific_pid:S.pid,study_id:S.study_id,session_id:S.session_id,
+    condition:S.condition,assigned_by:S.assigned_by,started_at:S.started_at,total_time_ms:S.t_end,
+    n_correct:n,accuracy:n/tasks.length,mean_abs_error:tasks.reduce((s,t)=>s+t.abs_error,0)/tasks.length,
+    task_order:order.join('-'),in_order:order.join('-')===S.tasks.map(t=>t.id).join('-'),
+    tab_hidden_count:S.hidden_count,tab_hidden_ms:S.hidden_ms,
+    viewport:`${innerWidth}x${innerHeight}`,screen:`${screen.width}x${screen.height}`,user_agent:navigator.userAgent,
+    survey,tasks,event_log:S.log};
+}
+
+async function finish(survey){
+  S.phase='done';
+  const data=payload(survey);
+  const back=`https://app.prolific.com/submissions/complete?cc=${encodeURIComponent(CONFIG.COMPLETION_CODE)}`;
+  if(!CONFIG.ENDPOINT){
+    app.innerHTML=`<div class="page"><h1>Test mode</h1><p class="muted">No ENDPOINT set, so nothing was saved. This is the data that would be sent:</p>
+      <p>Accuracy: <b>${data.n_correct}/10</b> · Time: <b>${(data.total_time_ms/1000).toFixed(1)} s</b> · Condition: <b>${data.condition}</b></p>
+      <pre style="white-space:pre-wrap;font-size:12px;background:#f4f6fa;padding:12px;border-radius:8px;max-height:420px;overflow:auto">${JSON.stringify(data,null,2).replace(/</g,'&lt;')}</pre></div>`;
+    return;
+  }
+  app.innerHTML=`<div class="page"><h1>Saving your responses…</h1><p class="muted">Please don't close this page.</p></div>`;
+  const send=()=>fetch(CONFIG.ENDPOINT,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(data)});
+  try{await send();}catch(e){
+    try{await new Promise(r=>setTimeout(r,1500));await send();}catch(e2){
+      app.innerHTML=`<div class="page"><h1>Connection problem</h1><p>We couldn't save your responses. Please check your connection and try again.</p><button id="retry">Try again</button></div>`;
+      document.getElementById('retry').onclick=()=>finish(survey);return;}
+  }
+  app.innerHTML=`<div class="page"><h1>Thank you!</h1><p>Your responses were saved. You'll be returned to Prolific automatically.</p>
+    <p>If nothing happens, <a href="${back}">click here</a> or enter code <b>${CONFIG.COMPLETION_CODE}</b>.</p></div>`;
+  setTimeout(()=>location.href=back,2500);
+}
+
+consent();
+</script>
+</body>
+</html>
